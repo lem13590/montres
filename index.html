@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Montres - relais</title>
+<style>
+:root{--fond:#f6f5f2;--carte:#fff;--texte:#1d1f22;--discret:#6b7078;--trait:#e2e0da;--accent:#1f6f5c;--alerte:#b3261e}
+@media (prefers-color-scheme:dark){:root{--fond:#151618;--carte:#1e2023;--texte:#ecebe7;--discret:#9a9ea5;--trait:#2d3035;--accent:#5fc0a6;--alerte:#ff8a80}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--fond);color:var(--texte);font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:520px;margin:0 auto;padding:16px}
+.carte{background:var(--carte);border:1px solid var(--trait);border-radius:12px;padding:14px;margin:12px 0}
+h1{font-size:1.3rem;margin:.2rem 0}
+.sous{color:var(--discret);margin:.2rem 0}
+label{display:block;margin:10px 0;cursor:pointer}
+input[type=text]{width:100%;padding:10px;border-radius:8px;border:1px solid var(--trait);background:var(--carte);color:var(--texte);font:inherit}
+button{padding:10px 16px;border-radius:8px;border:1px solid var(--accent);background:transparent;color:var(--accent);font:inherit;cursor:pointer}
+#erreur{color:var(--alerte);min-height:1.4em}
+[hidden]{display:none}
+</style>
+</head>
+<body>
+<main>
+<h1>Fiche de la montre</h1>
+<p class="sous" id="etat">Ouverture…</p>
+
+<form id="reglage" class="carte" hidden>
+  <p><strong>Où sont les fiches pour cet appareil ?</strong></p>
+  <p class="sous">Réglage fait une seule fois, mémorisé dans ce navigateur. Cette page ne contient aucune donnée sur vos montres.</p>
+  <label><input type="radio" name="mode" value="local" checked> Sur cet appareil (Python lancé ici) <span class="sous">http://127.0.0.1:5001</span></label>
+  <label><input type="radio" name="mode" value="autre"> Sur un autre appareil du réseau de la maison</label>
+  <input type="text" id="autre" inputmode="url" placeholder="http://192.168.1.50:5001" autocomplete="off">
+  <p id="erreur" role="alert"></p>
+  <button type="submit">Enregistrer</button>
+</form>
+
+<p class="sous" id="actuel" hidden></p>
+</main>
+
+<script>
+(function () {
+  var CLE = 'serveur_fiches';
+  var LOCAL = 'http://127.0.0.1:5001';
+  var params = new URLSearchParams(location.search);
+  var id = params.get('m');
+  if (id !== null && !/^[A-Za-z0-9_-]{1,60}$/.test(id)) id = null;   // jamais autre chose qu'un identifiant de montre
+  var etat = document.getElementById('etat');
+  var formulaire = document.getElementById('reglage');
+  var actuel = document.getElementById('actuel');
+
+  // Une adresse de serveur : http(s)://hote[:port] seulement (pas de chemin, pas d'identifiants)
+  function adresseValide(texte) {
+    try {
+      var u = new URL(texte.trim());
+      var ok = (u.protocol === 'http:' || u.protocol === 'https:') && !u.username && !u.password &&
+               u.pathname === '/' && !u.search && !u.hash;
+      return ok ? u.origin : null;
+    } catch (e) { return null; }
+  }
+  function lire() {
+    try { return adresseValide(localStorage.getItem(CLE) || ''); } catch (e) { return null; }
+  }
+  function aller(serveur) {
+    etat.textContent = 'Ouverture de la fiche…';
+    location.replace(serveur + '/f/' + encodeURIComponent(id.toLowerCase()));
+  }
+  function afficherReglage(message) {
+    etat.textContent = message;
+    formulaire.hidden = false;
+  }
+
+  formulaire.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var mode = formulaire.elements.mode.value;
+    var serveur = mode === 'local' ? LOCAL : adresseValide(document.getElementById('autre').value);
+    if (!serveur) { document.getElementById('erreur').textContent = 'Adresse invalide. Exemple : http://192.168.1.50:5001'; return; }
+    try { localStorage.setItem(CLE, serveur); } catch (err) {
+      document.getElementById('erreur').textContent = 'Ce navigateur refuse de mémoriser le réglage.'; return;
+    }
+    if (id) aller(serveur); else location.href = location.pathname;
+  });
+
+  // Page mémorisée pour les passages hors ligne (le service worker n'enregistre aucune donnée de montre)
+  var pret = Promise.resolve();
+  if ('serviceWorker' in navigator) {
+    pret = Promise.race([
+      navigator.serviceWorker.register('sw.js').then(function () { return navigator.serviceWorker.ready; }),
+      new Promise(function (r) { setTimeout(r, 2000); })
+    ]).catch(function () {});
+  }
+
+  pret.then(function () {
+    var serveur = lire();
+    var reglage = params.has('reglage');
+    if (serveur && id && !reglage) { aller(serveur); return; }
+    if (serveur) {
+      actuel.hidden = false;
+      actuel.textContent = 'Serveur actuel : ' + serveur;
+    }
+    if (!serveur) afficherReglage(id ? 'Premier passage : indiquez où se trouvent les fiches.' : 'Indiquez où se trouvent les fiches.');
+    else if (reglage) afficherReglage('Changer l’adresse du serveur.');
+    else etat.textContent = id ? '' : 'Passez le téléphone sur le tag d’une montre. Pour changer le serveur : ajoutez ?reglage à l’adresse.';
+  });
+})();
+</script>
+</body>
+</html>
